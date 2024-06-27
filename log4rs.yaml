@@ -18,12 +18,12 @@ appenders:
         base: 1
 
 root:
-  level: debug
+  level: info
   appenders:
     - stdout
 
 loggers:
   base:
-    level: debug
+    level: info
     appenders:
       - base
