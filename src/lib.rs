@@ -11,7 +11,7 @@ pub fn init() -> Result<(), anyhow::Error> {
     }
     Logger::info("Logger initialized successfully");
     let tokio_runtime = asynchronous::tokio::runtime::AppRuntime::new();
-    let flats_parser = flats::FlatsParser::new(tokio_runtime);
+    let mut flats_parser = flats::FlatsParser::new(tokio_runtime);
     if let Err(err) = flats_parser.parse_cities_and_districts() {
         return Err(err);
     }
