@@ -4,6 +4,7 @@ use reqwest::Client;
 use scraper::{ElementRef, Html, Selector};
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 #[derive(Debug, Eq, PartialEq, Hash)]
 pub struct CategoryStructure {
@@ -27,14 +28,14 @@ impl Hash for City {
 }
 
 pub struct FlatsParser {
-    tokio: AppRuntime,
-    cities: HashSet<City>,
+    tokio: Arc<AppRuntime>,
+    pub cities: HashSet<City>,
     url_base: String,
     request_client: Client,
 }
 
 impl FlatsParser {
-    pub fn new(tokio: AppRuntime) -> Self {
+    pub fn new(tokio: Arc<AppRuntime>) -> Self {
         let cities: HashSet<City> = HashSet::new();
         let url_base = String::from("https://www.ss.com");
         let request_client = Client::new();
@@ -118,8 +119,6 @@ impl FlatsParser {
                 districts: districts_set,
             });
         }
-        println!("finished parsing cities and districts");
-        println!("{:?}", self.cities);
         Ok(())
     }
 }
