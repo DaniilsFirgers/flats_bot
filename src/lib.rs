@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use dotenv::dotenv;
 use logger::Logger;
-use tokio::signal;
+use tokio::{signal, sync::Mutex};
 
 pub fn init() -> Result<(), anyhow::Error> {
     if let Err(error) = Logger::new() {
@@ -21,11 +21,14 @@ pub fn init() -> Result<(), anyhow::Error> {
     let tokio_runtime = Arc::new(asynchronous::tokio::runtime::AppRuntime::new());
     let flats_parser = flats::FlatsParser::new(Arc::clone(&tokio_runtime));
 
-    let mut telegram_bot = telegram::FlatsBotTelegram::new(flats_parser);
+    let mut telegram_bot = telegram::FlatsBotTelegram::new(
+        Arc::clone(&tokio_runtime),
+        Arc::new(Mutex::new(flats_parser)),
+    );
     telegram_bot.init()?;
 
     let bot_tokio = Arc::clone(&tokio_runtime);
-    bot_tokio.runtime.block_on(async move {
+    bot_tokio.runtime.spawn(async move {
         let _qwe = telegram_bot.run().await;
     });
 
