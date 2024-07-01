@@ -1,11 +1,18 @@
 use std::sync::Arc;
 
+use crate::asynchronous::tokio::runtime::AppRuntime;
 use crate::{flats::FlatsParser, logger::Logger};
+use teloxide::types::{ChatId, ParseMode};
 use teloxide::{dispatching::dialogue::InMemStorage, prelude::*};
+use tokio::sync::Mutex;
 
 pub struct FlatsBotTelegram {
-    flats_parser: FlatsParser,
+    pub flats_parser: Arc<Mutex<FlatsParser>>,
+    tokio_runtime: Arc<AppRuntime>,
     bot: Bot,
+}
+struct BotDependencies {
+    flats_parser: Arc<Mutex<FlatsParser>>,
 }
 
 type MyDialogue = Dialogue<State, InMemStorage<State>>;
@@ -26,17 +33,30 @@ pub enum State {
 }
 
 impl FlatsBotTelegram {
-    pub fn new(flats_parser: FlatsParser) -> Self {
+    pub fn new(tokio_runtime: Arc<AppRuntime>, flats_parser: Arc<Mutex<FlatsParser>>) -> Self {
         let bot = Bot::from_env();
-        Self { flats_parser, bot }
+        Self {
+            tokio_runtime,
+            flats_parser,
+            bot,
+        }
     }
 
     pub fn init(&mut self) -> Result<(), anyhow::Error> {
-        self.flats_parser.parse_cities_and_districts()?;
+        let cities_parsing_res: Result<(), anyhow::Error> =
+            self.tokio_runtime.runtime.block_on(async {
+                let mut parser = self.flats_parser.lock().await;
+                parser.parse_cities_and_districts().await?;
+                Ok(())
+            });
+        cities_parsing_res?;
         Logger::info("Cities and districts parsed successfully");
         Ok(())
     }
     pub async fn run(&mut self) -> Result<(), anyhow::Error> {
+        let dependencies = Arc::new(BotDependencies {
+            flats_parser: self.flats_parser.clone(),
+        });
         Dispatcher::builder(
             self.bot.clone(),
             Update::filter_message()
@@ -49,7 +69,7 @@ impl FlatsBotTelegram {
                         .endpoint(Self::receive_location),
                 ),
         )
-        .dependencies(dptree::deps![InMemStorage::<State>::new()])
+        .dependencies(dptree::deps![dependencies, InMemStorage::<State>::new()])
         .enable_ctrlc_handler()
         .build()
         .dispatch()
@@ -58,9 +78,25 @@ impl FlatsBotTelegram {
         println!("Bot stopped");
         Ok(())
     }
-    async fn start(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResult {
-        bot.send_message(msg.chat.id, "Let's start! What's your full name?")
-            .await?;
+    async fn start(
+        dependencies: Arc<BotDependencies>,
+        bot: Bot,
+        dialogue: MyDialogue,
+        msg: Message,
+    ) -> HandlerResult {
+        let flats_parser = dependencies.flats_parser.lock().await;
+        let mut cities = flats_parser
+            .cities
+            .iter()
+            .map(|city| format!("• {}", city.name))
+            .collect::<Vec<_>>();
+
+        cities.sort();
+        let cities = cities.join("\n");
+
+        println!("cities: {:?}", cities);
+        let greeting_message = format!("Let's start! Please select a city: \n\n{}", cities);
+        bot.send_message(msg.chat.id, greeting_message).await?;
         dialogue.update(State::ReceiveFullName).await?;
         println!("updated state");
         Ok(())
