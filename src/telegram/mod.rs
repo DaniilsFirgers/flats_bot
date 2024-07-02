@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use crate::asynchronous::tokio::runtime::AppRuntime;
 use crate::{flats::FlatsParser, logger::Logger};
-use teloxide::types::{ChatId, ParseMode};
-use teloxide::{dispatching::dialogue::InMemStorage, prelude::*};
+use teloxide::{dispatching::dialogue::InMemStorage, prelude::*, utils::command::BotCommands};
+
 use tokio::sync::Mutex;
 
 pub struct FlatsBotTelegram {
@@ -30,6 +30,14 @@ pub enum State {
         full_name: String,
         age: u8,
     },
+}
+#[derive(BotCommands, Clone)]
+#[command(rename = "lowercase", description = "These commands are supported:")]
+enum Command {
+    #[command(description = "Start the dialogue.")]
+    Start,
+    #[command(description = "use '/start' command to start the dialogue.")]
+    Help,
 }
 
 impl FlatsBotTelegram {
@@ -96,6 +104,7 @@ impl FlatsBotTelegram {
 
         println!("cities: {:?}", cities);
         let greeting_message = format!("Let's start! Please select a city: \n\n{}", cities);
+        println!("greeting_message: {:?}", greeting_message);
         bot.send_message(msg.chat.id, greeting_message).await?;
         dialogue.update(State::ReceiveFullName).await?;
         println!("updated state");
