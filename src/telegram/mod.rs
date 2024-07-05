@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use crate::asynchronous::tokio::runtime::AppRuntime;
 use crate::{flats::FlatsParser, logger::Logger};
+use dptree::case;
+use teloxide::dispatching::{dialogue, UpdateHandler};
 use teloxide::{dispatching::dialogue::InMemStorage, prelude::*, utils::command::BotCommands};
 
 use tokio::sync::Mutex;
@@ -23,7 +25,7 @@ pub enum State {
     #[default]
     Start,
     ReceiveCityName,
-    ReceiveAge {
+    ReceiveDistrictName {
         city_name: String,
     },
     ReceiveLocation {
@@ -39,8 +41,10 @@ pub enum State {
 enum Command {
     #[command(description = "Start the dialogue.")]
     Start,
-    #[command(description = "use '/start' command to start the dialogue.")]
+    #[command(description = "Get help.")]
     Help,
+    #[command(description = "Cancel the dialogue.")]
+    Cancel,
 }
 
 impl FlatsBotTelegram {
@@ -64,31 +68,51 @@ impl FlatsBotTelegram {
         Logger::info("Cities and districts parsed successfully");
         Ok(())
     }
+
+    fn create_schema(&self) -> UpdateHandler<Box<dyn std::error::Error + Send + Sync + 'static>> {
+        let command_handler = teloxide::filter_command::<Command, _>()
+            .branch(
+                case![State::Start]
+                    .branch(case![Command::Help].endpoint(Self::help_message))
+                    .branch(case![Command::Start].endpoint(Self::start)),
+            )
+            .branch(case![Command::Cancel].endpoint(Self::cancel));
+
+        let message_handler = Update::filter_message()
+            .branch(command_handler)
+            .branch(dptree::case![State::ReceiveCityName].endpoint(Self::recieve_city_name))
+            .branch(
+                dptree::case![State::ReceiveDistrictName { city_name }].endpoint(Self::receive_age),
+            )
+            .branch(
+                dptree::case![State::ReceiveLocation { full_name, age }]
+                    .endpoint(Self::receive_location),
+            )
+            .branch(dptree::entry().endpoint(Self::unhandled_message));
+
+        dialogue::enter::<Update, InMemStorage<State>, State, _>().branch(message_handler)
+    }
     pub async fn run(&mut self) -> Result<(), anyhow::Error> {
         let dependencies = Arc::new(BotDependencies {
             flats_parser: self.flats_parser.clone(),
         });
-        Dispatcher::builder(
-            self.bot.clone(),
-            Update::filter_message()
-                .enter_dialogue::<Message, InMemStorage<State>, State>()
-                .branch(dptree::case![State::Start].endpoint(Self::start))
-                .branch(dptree::case![State::ReceiveCityName].endpoint(Self::recieve_city_name))
-                .branch(dptree::case![State::ReceiveAge { city_name }].endpoint(Self::receive_age))
-                .branch(
-                    dptree::case![State::ReceiveLocation { full_name, age }]
-                        .endpoint(Self::receive_location),
-                ),
-        )
-        .dependencies(dptree::deps![dependencies, InMemStorage::<State>::new()])
-        .enable_ctrlc_handler()
-        .build()
-        .dispatch()
-        .await;
 
-        println!("Bot stopped");
+        Dispatcher::builder(self.bot.clone(), self.create_schema())
+            .dependencies(dptree::deps![dependencies, InMemStorage::<State>::new()])
+            .enable_ctrlc_handler()
+            .build()
+            .dispatch()
+            .await;
+
         Ok(())
     }
+
+    async fn help_message(bot: Bot, msg: Message) -> HandlerResult {
+        let help_text = Command::descriptions();
+        bot.send_message(msg.chat.id, help_text.to_string()).await?;
+        Ok(())
+    }
+
     async fn start(
         dependencies: Arc<BotDependencies>,
         bot: Bot,
@@ -105,12 +129,9 @@ impl FlatsBotTelegram {
         cities.sort();
         let cities = cities.join("\n");
 
-        println!("cities: {:?}", cities);
         let greeting_message = format!("Let's start! Please select a city: \n\n{}", cities);
-        println!("greeting_message: {:?}", greeting_message);
         bot.send_message(msg.chat.id, greeting_message).await?;
         dialogue.update(State::ReceiveCityName).await?;
-        println!("updated state");
         Ok(())
     }
 
@@ -146,7 +167,7 @@ impl FlatsBotTelegram {
         )
         .await?;
         dialogue
-            .update(State::ReceiveAge {
+            .update(State::ReceiveDistrictName {
                 city_name: city_name.into(),
             })
             .await?;
@@ -196,9 +217,19 @@ impl FlatsBotTelegram {
         Ok(())
     }
 
-    async fn catch_all(bot: Bot, msg: Message) -> HandlerResult {
+    async fn cancel(bot: Bot, msg: Message) -> HandlerResult {
         bot.send_message(msg.chat.id, "Unhandled message: Please follow the prompts.")
             .await?;
+        Ok(())
+    }
+
+    async fn unhandled_message(bot: Bot, msg: Message) -> HandlerResult {
+        let help_text = Command::descriptions();
+        bot.send_message(
+            msg.chat.id,
+            format!("Unhandled message. Available commands:\n{}", help_text),
+        )
+        .await?;
         Ok(())
     }
 }

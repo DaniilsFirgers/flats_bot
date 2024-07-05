@@ -74,12 +74,11 @@ impl FlatsParser {
         let cities: Vec<ElementRef> = html.select(&h4_selector).collect();
         let mut cities_href_map: HashMap<String, String> = HashMap::new(); // <city_name, city_href>
         for element in cities {
-            let city_name = element.text().collect::<String>();
-            // TODO: need to filter out stupid other abroad cities
-            let Some(city_name) = city_name.split_whitespace().next() else {
-                Logger::info("Failed to get city name");
-                continue;
-            };
+            let mut city_name = element.text().collect::<String>();
+            let region = city_name.split_whitespace().find(|&word| word.eq("and"));
+            if region.is_some() && city_name.split_whitespace().next().is_some() {
+                city_name = city_name.split_whitespace().next().unwrap().to_string();
+            }
 
             let Some(city_href) = element.value().attr("href") else {
                 Logger::info(format!("Failed to get href attribute for {:?}", city_name).as_str());
@@ -120,12 +119,16 @@ impl FlatsParser {
             let mut districts_set: HashSet<CategoryStructure> = HashSet::new();
             for district in districts {
                 let district_name = district.text().collect::<String>();
+                let Some(district_name) = district_name.split_whitespace().next() else {
+                    Logger::info("Failed to get city name");
+                    continue;
+                };
                 let Some(district_href) = district.value().attr("href") else {
                     Logger::info(format!("Failed to get href attribute from {:?}", district_name).as_str());
                     continue;
                 };
                 districts_set.insert(CategoryStructure {
-                    name: district_name,
+                    name: district_name.to_string(),
                     href: district_href.to_string(),
                 });
             }
