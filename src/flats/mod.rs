@@ -32,6 +32,7 @@ impl Hash for City {
 pub struct FlatsParser {
     tokio: Arc<AppRuntime>,
     pub cities: HashSet<City>,
+    pub deal_types: Vec<String>,
     url_base: String,
     request_client: Client,
 }
@@ -41,9 +42,11 @@ impl FlatsParser {
         let cities: HashSet<City> = HashSet::new();
         let url_base = String::from("https://www.ss.com");
         let request_client = Client::new();
+        let deal_types: Vec<String> = Vec::new();
         Self {
             tokio,
             cities,
+            deal_types,
             url_base,
             request_client,
         }
@@ -138,6 +141,57 @@ impl FlatsParser {
                 districts: districts_set,
             });
         }
+
+        // parse deal types here
+        let random_city = self.cities.iter().next();
+        let Some(random_city) = random_city else {
+            Logger::info("Failed to get random city");
+            return Err(anyhow::anyhow!("Failed to get random city"));
+        };
+
+        let random_city_random_district = random_city.districts.iter().next();
+        let Some(random_district) = random_city_random_district else {
+            Logger::info("Failed to get random city random district");
+            return Err(anyhow::anyhow!("Failed to get random city random district"));
+        };
+
+        let full_deal_types_url = format!("{}{}", self.url_base, random_district.href);
+        let raw_deal_types_html: Result<String, anyhow::Error> = {
+            let res = self.request_client.get(&full_deal_types_url).send().await?;
+            if !res.status().is_success() {
+                return Err(anyhow::anyhow!(
+                    "Failed to get successful response from {}",
+                    full_deal_types_url
+                ));
+            }
+            let res = res.text().await?;
+            Ok(res)
+        };
+
+        if let Err(error) = raw_deal_types_html {
+            Logger::info(
+                format!(
+                    "Failed to get response from {}: {}",
+                    full_deal_types_url, error
+                )
+                .as_str(),
+            );
+            return Err(anyhow::anyhow!(
+                "Failed to get response from {}: {}",
+                full_deal_types_url,
+                error
+            ));
+        }
+        let deal_types_html = Html::parse_document(&raw_deal_types_html.unwrap());
+
+        println!("deal types html{:?}", deal_types_html);
+
+        let Ok(deal_types_selector) = Selector::parse("select.filter_sel l100") else {
+            Logger::info("Failed to parse selector");
+            return Err(anyhow::anyhow!("Failed to parse selector"));
+        };
+        let deal_types: Vec<ElementRef> = deal_types_html.select(&deal_types_selector).collect();
+        println!("deal types{:?}", deal_types);
         Ok(())
     }
 }

@@ -28,9 +28,9 @@ pub enum State {
     ReceiveDistrictName {
         city_name: String,
     },
-    ReceiveLocation {
-        full_name: String,
-        age: u8,
+    ReceiveDealType {
+        city_name: String,
+        district_name: u8,
     },
 }
 #[derive(BotCommands, Clone)]
@@ -82,11 +82,15 @@ impl FlatsBotTelegram {
             .branch(command_handler)
             .branch(dptree::case![State::ReceiveCityName].endpoint(Self::recieve_city_name))
             .branch(
-                dptree::case![State::ReceiveDistrictName { city_name }].endpoint(Self::receive_age),
+                dptree::case![State::ReceiveDistrictName { city_name }]
+                    .endpoint(Self::receive_district_name),
             )
             .branch(
-                dptree::case![State::ReceiveLocation { full_name, age }]
-                    .endpoint(Self::receive_location),
+                dptree::case![State::ReceiveDealType {
+                    city_name,
+                    district_name
+                }]
+                .endpoint(Self::receive_location),
             )
             .branch(dptree::entry().endpoint(Self::unhandled_message));
 
@@ -175,18 +179,27 @@ impl FlatsBotTelegram {
         Ok(())
     }
 
-    async fn receive_age(
+    async fn receive_district_name(
         bot: Bot,
         dialogue: MyDialogue,
-        full_name: String, // Available from `State::ReceiveAge`.
+        city_name: String, // Available from `State::ReceiveAge`.
         msg: Message,
     ) -> HandlerResult {
+        let Some(district_name): Option<&str> = msg.text() else {
+            bot.send_message(msg.chat.id, "Message should be a plain text").await?;
+            return Ok(())
+        };
+        // here i should scrape deal types
+
         match msg.text().map(|text| text.parse::<u8>()) {
-            Some(Ok(age)) => {
+            Some(Ok(district_name)) => {
                 bot.send_message(msg.chat.id, "What's your location?")
                     .await?;
                 dialogue
-                    .update(State::ReceiveLocation { full_name, age })
+                    .update(State::ReceiveDealType {
+                        city_name,
+                        district_name,
+                    })
                     .await?;
             }
             _ => {
