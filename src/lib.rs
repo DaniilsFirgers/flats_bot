@@ -15,8 +15,6 @@ pub fn init() -> Result<(), anyhow::Error> {
         return Err(error);
     }
     dotenv().ok();
-    let dotenv_qwe = dotenv::var("TELEGRAM_BOT_TOKEN");
-    println!("dotenv_qwe: {:?}", dotenv_qwe);
     Logger::info("Logger initialized successfully");
     let tokio_runtime = Arc::new(asynchronous::tokio::runtime::AppRuntime::new());
     let flats_parser = flats::FlatsParser::new(Arc::clone(&tokio_runtime));
