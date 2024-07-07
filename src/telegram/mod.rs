@@ -30,7 +30,7 @@ pub enum State {
     },
     ReceiveDealType {
         city_name: String,
-        district_name: u8,
+        district_name: String,
     },
 }
 #[derive(BotCommands, Clone)]
@@ -90,7 +90,7 @@ impl FlatsBotTelegram {
                     city_name,
                     district_name
                 }]
-                .endpoint(Self::receive_location),
+                .endpoint(Self::receive_deal_type),
             )
             .branch(dptree::entry().endpoint(Self::unhandled_message));
 
@@ -180,6 +180,7 @@ impl FlatsBotTelegram {
     }
 
     async fn receive_district_name(
+        dependencies: Arc<BotDependencies>,
         bot: Bot,
         dialogue: MyDialogue,
         city_name: String, // Available from `State::ReceiveAge`.
@@ -190,27 +191,45 @@ impl FlatsBotTelegram {
             return Ok(())
         };
         // here i should scrape deal types
+        let flats_parser = dependencies.flats_parser.lock().await;
+        let city_option = flats_parser
+            .cities
+            .iter()
+            .find(|city| city.name.eq(&city_name));
 
-        match msg.text().map(|text| text.parse::<u8>()) {
-            Some(Ok(district_name)) => {
-                bot.send_message(msg.chat.id, "What's your location?")
-                    .await?;
-                dialogue
-                    .update(State::ReceiveDealType {
-                        city_name,
-                        district_name,
-                    })
-                    .await?;
-            }
-            _ => {
-                bot.send_message(msg.chat.id, "Send me a number.").await?;
-            }
-        }
+        let Some(city) = city_option else {
+        bot.send_message(msg.chat.id, "City not found").await?;
+        return Ok(());
+        };
+        let city = city.clone();
+        let Some(district) = city.districts.iter().find(|district| district.name.eq(district_name)) else {
+            bot.send_message(msg.chat.id, "District not found").await?;
+            return Ok(())
+        };
+        let deal_options = district
+            .deal_types
+            .iter()
+            .map(|deal_type| format!("• {}", deal_type))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        bot.send_message(
+            msg.chat.id,
+            format!("Please select a deal type: \n\n{}", deal_options),
+        )
+        .await?;
+
+        dialogue
+            .update(State::ReceiveDealType {
+                city_name: city_name.into(),
+                district_name: district_name.into(),
+            })
+            .await?;
 
         Ok(())
     }
 
-    async fn receive_location(
+    async fn receive_deal_type(
         bot: Bot,
         dialogue: MyDialogue,
         (full_name, age): (String, u8), // Available from `State::ReceiveLocation`.

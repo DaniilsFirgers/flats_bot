@@ -1,5 +1,6 @@
 use crate::{asynchronous::tokio::runtime::AppRuntime, logger};
 use logger::Logger;
+use regex::Regex;
 use reqwest::Client;
 use scraper::{ElementRef, Html, Selector};
 use std::collections::{HashMap, HashSet};
@@ -10,6 +11,7 @@ use std::sync::Arc;
 pub struct CategoryStructure {
     pub name: String,
     pub href: String,
+    pub deal_types: Vec<String>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -53,7 +55,12 @@ impl FlatsParser {
     }
 
     pub async fn parse_cities_and_districts(&mut self) -> Result<(), anyhow::Error> {
-        let full_url = format!("{}/en/real-estate/flats/", self.url_base);
+        let Ok(regex) = Regex::new(r"\u{a0}") else {
+            Logger::info("Failed to create regex");
+            return Err(anyhow::anyhow!("Failed to create regex"));
+        };
+
+        let full_url = format!("{}/lv/real-estate/flats/", self.url_base);
         let raw_html: Result<String, anyhow::Error> = {
             let res = self.request_client.get(&full_url).send().await?;
             if !res.status().is_success() {
@@ -78,7 +85,7 @@ impl FlatsParser {
         let mut cities_href_map: HashMap<String, String> = HashMap::new(); // <city_name, city_href>
         for element in cities {
             let mut city_name = element.text().collect::<String>();
-            let region = city_name.split_whitespace().find(|&word| word.eq("and"));
+            let region = city_name.split_whitespace().find(|&word| word.eq("un"));
             if region.is_some() && city_name.split_whitespace().next().is_some() {
                 city_name = city_name.split_whitespace().next().unwrap().to_string();
             }
@@ -130,9 +137,57 @@ impl FlatsParser {
                     Logger::info(format!("Failed to get href attribute from {:?}", district_name).as_str());
                     continue;
                 };
+
+                let full_deal_types_url = format!("{}{}", self.url_base, district_href);
+                let raw_deal_types_html: Result<String, anyhow::Error> = {
+                    let res = self.request_client.get(&full_deal_types_url).send().await?;
+                    if !res.status().is_success() {
+                        return Err(anyhow::anyhow!(
+                            "Failed to get successful response from {}",
+                            full_deal_types_url
+                        ));
+                    }
+                    let res = res.text().await?;
+                    Ok(res)
+                };
+
+                if let Err(error) = raw_deal_types_html {
+                    Logger::info(
+                        format!(
+                            "Failed to get response from {}: {}",
+                            full_deal_types_url, error
+                        )
+                        .as_str(),
+                    );
+                    return Err(anyhow::anyhow!(
+                        "Failed to get response from {}: {}",
+                        full_deal_types_url,
+                        error
+                    ));
+                }
+                let deal_types_html = Html::parse_document(&raw_deal_types_html.unwrap());
+                let Ok(deal_types_selector) = Selector::parse("select.filter_sel.l100 > option") else {
+                    Logger::info("Failed to parse selector");
+                    return Err(anyhow::anyhow!("Failed to parse selector"));
+                };
+
+                let deal_types = deal_types_html
+                    .select(&deal_types_selector)
+                    .collect::<Vec<ElementRef>>();
+
+                let deal_types: Vec<String> = deal_types
+                    .iter()
+                    .map(|deal_type| {
+                        let deal_type = deal_type.text().collect::<String>();
+                        let cleaned_deal_type = regex.replace_all(&deal_type, "");
+                        cleaned_deal_type.to_string()
+                    })
+                    .collect();
+
                 districts_set.insert(CategoryStructure {
                     name: district_name.to_string(),
                     href: district_href.to_string(),
+                    deal_types,
                 });
             }
             self.cities.insert(City {
@@ -141,57 +196,6 @@ impl FlatsParser {
                 districts: districts_set,
             });
         }
-
-        // parse deal types here
-        let random_city = self.cities.iter().next();
-        let Some(random_city) = random_city else {
-            Logger::info("Failed to get random city");
-            return Err(anyhow::anyhow!("Failed to get random city"));
-        };
-
-        let random_city_random_district = random_city.districts.iter().next();
-        let Some(random_district) = random_city_random_district else {
-            Logger::info("Failed to get random city random district");
-            return Err(anyhow::anyhow!("Failed to get random city random district"));
-        };
-
-        let full_deal_types_url = format!("{}{}", self.url_base, random_district.href);
-        let raw_deal_types_html: Result<String, anyhow::Error> = {
-            let res = self.request_client.get(&full_deal_types_url).send().await?;
-            if !res.status().is_success() {
-                return Err(anyhow::anyhow!(
-                    "Failed to get successful response from {}",
-                    full_deal_types_url
-                ));
-            }
-            let res = res.text().await?;
-            Ok(res)
-        };
-
-        if let Err(error) = raw_deal_types_html {
-            Logger::info(
-                format!(
-                    "Failed to get response from {}: {}",
-                    full_deal_types_url, error
-                )
-                .as_str(),
-            );
-            return Err(anyhow::anyhow!(
-                "Failed to get response from {}: {}",
-                full_deal_types_url,
-                error
-            ));
-        }
-        let deal_types_html = Html::parse_document(&raw_deal_types_html.unwrap());
-
-        println!("deal types html{:?}", deal_types_html);
-
-        let Ok(deal_types_selector) = Selector::parse("select.filter_sel l100") else {
-            Logger::info("Failed to parse selector");
-            return Err(anyhow::anyhow!("Failed to parse selector"));
-        };
-        let deal_types: Vec<ElementRef> = deal_types_html.select(&deal_types_selector).collect();
-        println!("deal types{:?}", deal_types);
         Ok(())
     }
 }
