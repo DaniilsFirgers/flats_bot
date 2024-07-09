@@ -32,6 +32,11 @@ pub enum State {
         city_name: String,
         district_name: String,
     },
+    ReceivePriceRange {
+        city_name: String,
+        district_name: String,
+        deal_type: String,
+    },
 }
 #[derive(BotCommands, Clone)]
 #[command(
@@ -96,6 +101,7 @@ impl FlatsBotTelegram {
 
         dialogue::enter::<Update, InMemStorage<State>, State, _>().branch(message_handler)
     }
+
     pub async fn run(&mut self) -> Result<(), anyhow::Error> {
         let dependencies = Arc::new(BotDependencies {
             flats_parser: self.flats_parser.clone(),
@@ -183,7 +189,7 @@ impl FlatsBotTelegram {
         dependencies: Arc<BotDependencies>,
         bot: Bot,
         dialogue: MyDialogue,
-        city_name: String, // Available from `State::ReceiveAge`.
+        city_name: String,
         msg: Message,
     ) -> HandlerResult {
         let Some(district_name): Option<&str> = msg.text() else {
@@ -198,14 +204,16 @@ impl FlatsBotTelegram {
             .find(|city| city.name.eq(&city_name));
 
         let Some(city) = city_option else {
-        bot.send_message(msg.chat.id, "City not found").await?;
-        return Ok(());
+            bot.send_message(msg.chat.id, "City not found").await?;
+            return Ok(());
         };
+
         let city = city.clone();
         let Some(district) = city.districts.iter().find(|district| district.name.eq(district_name)) else {
             bot.send_message(msg.chat.id, "District not found").await?;
             return Ok(())
         };
+
         let deal_options = district
             .deal_types
             .iter()
@@ -222,29 +230,75 @@ impl FlatsBotTelegram {
         dialogue
             .update(State::ReceiveDealType {
                 city_name: city_name.into(),
-                district_name: district_name.into(),
+                district_name: district_name.to_string(),
             })
             .await?;
 
+        println!("dialogue: {:?}", dialogue);
         Ok(())
     }
 
     async fn receive_deal_type(
+        dependencies: Arc<BotDependencies>,
         bot: Bot,
         dialogue: MyDialogue,
-        (full_name, age): (String, u8), // Available from `State::ReceiveLocation`.
         msg: Message,
     ) -> HandlerResult {
-        match msg.text() {
-            Some(location) => {
-                let report = format!("Full name: {full_name}\nAge: {age}\nLocation: {location}");
-                bot.send_message(msg.chat.id, report).await?;
-                dialogue.exit().await?;
-            }
-            None => {
-                bot.send_message(msg.chat.id, "Send me plain text.").await?;
-            }
+        let Some(deal_type): Option<&str> = msg.text() else {
+            bot.send_message(msg.chat.id, "Message should be a plain text").await?;
+            return Ok(())
+        };
+        let Some(state) = dialogue.get().await? else {
+            bot.send_message(msg.chat.id, "Dialogue not found").await?;
+            return Ok(())
+        };
+
+        let (city_name, district_name) = if let State::ReceiveDealType {
+            city_name,
+            district_name,
+        } = state
+        {
+            (city_name, district_name)
+        } else {
+            bot.send_message(msg.chat.id, "Unexpected state.").await?;
+            return Ok(());
+        };
+
+        let flats_parser = dependencies.flats_parser.lock().await;
+        let city_option = flats_parser
+            .cities
+            .iter()
+            .find(|city| city.name.eq(&city_name));
+
+        let Some(city) = city_option else {
+            bot.send_message(msg.chat.id, "City not found").await?;
+            return Ok(());
+        };
+
+        let city = city.clone();
+        let Some(district) = city.districts.iter().find(|district| district.name.eq(&district_name)) else {
+            bot.send_message(msg.chat.id, "District not found").await?;
+            return Ok(())
+        };
+        let is_deal_type_valid = district.deal_types.iter().any(|dt| dt.eq(deal_type));
+        if !is_deal_type_valid {
+            bot.send_message(msg.chat.id, "Deal type not found").await?;
+            return Ok(());
         }
+
+        bot.send_message(
+            msg.chat.id,
+            "Please enter the price range using the following format: 'min_price-max_price'",
+        )
+        .await?;
+
+        dialogue
+            .update(State::ReceivePriceRange {
+                city_name: city_name.into(),
+                district_name: district_name.into(),
+                deal_type: deal_type.into(),
+            })
+            .await?;
 
         Ok(())
     }

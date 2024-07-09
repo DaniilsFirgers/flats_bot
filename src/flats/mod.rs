@@ -85,11 +85,6 @@ impl FlatsParser {
         let mut cities_href_map: HashMap<String, String> = HashMap::new(); // <city_name, city_href>
         for element in cities {
             let mut city_name = element.text().collect::<String>();
-            let region = city_name.split_whitespace().find(|&word| word.eq("un"));
-            if region.is_some() && city_name.split_whitespace().next().is_some() {
-                city_name = city_name.split_whitespace().next().unwrap().to_string();
-            }
-
             let Some(city_href) = element.value().attr("href") else {
                 Logger::info(format!("Failed to get href attribute for {:?}", city_name).as_str());
                 continue;
@@ -129,10 +124,6 @@ impl FlatsParser {
             let mut districts_set: HashSet<CategoryStructure> = HashSet::new();
             for district in districts {
                 let district_name = district.text().collect::<String>();
-                let Some(district_name) = district_name.split_whitespace().next() else {
-                    Logger::info("Failed to get city name");
-                    continue;
-                };
                 let Some(district_href) = district.value().attr("href") else {
                     Logger::info(format!("Failed to get href attribute from {:?}", district_name).as_str());
                     continue;
