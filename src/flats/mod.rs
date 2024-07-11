@@ -5,7 +5,6 @@ use reqwest::Client;
 use scraper::{ElementRef, Html, Selector};
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::os::linux::raw;
 use std::sync::Arc;
 
 #[derive(Debug, Eq, PartialEq, Hash)]
