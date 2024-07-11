@@ -26,11 +26,11 @@ pub enum State {
     Start,
     ReceiveCityName,
     ReceiveDistrictName {
-        city_name: String,
+        city_name: String, // please keep name and href
     },
     ReceiveDealType {
-        city_name: String,
-        district_name: String,
+        city_name: String,     // please keep name and href
+        district_name: String, // please keep name and href
     },
     ReceivePriceRange {
         city_name: String,
@@ -316,6 +316,18 @@ impl FlatsBotTelegram {
             format!("Unhandled message. Available commands:\n{}", help_text),
         )
         .await?;
+        Ok(())
+    }
+
+    async fn request_flats(
+        bot: Bot,
+        dialogue: MyDialogue,
+        msg: Message,
+    ) -> Result<(), anyhow::Error> {
+        let Some(state) = dialogue.get().await? else {
+            bot.send_message(msg.chat.id, "Dialogue not found").await?;
+            return Ok(())
+        };
         Ok(())
     }
 }

@@ -5,6 +5,7 @@ use reqwest::Client;
 use scraper::{ElementRef, Html, Selector};
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
+use std::os::linux::raw;
 use std::sync::Arc;
 
 #[derive(Debug, Eq, PartialEq, Hash)]
@@ -40,6 +41,22 @@ pub struct Flat {
     pub square_meters: u32,
     pub floor: u32,
     pub series: String,
+}
+
+pub struct FlatCriteria {
+    pub href: String,
+    pub city: String,
+    pub district: String,
+    pub deal_type: String,
+    pub price_from: u32,
+    pub price_to: u32,
+    // pub rooms_from: u32,
+    // pub rooms_to: u32,
+    // pub square_meters_from: u32,
+    // pub square_meters_to: u32,
+    // pub floor_from: u32,
+    // pub floor_to: u32,
+    // pub series: String,
 }
 
 pub struct FlatsParser {
@@ -201,5 +218,77 @@ impl FlatsParser {
         Ok(())
     }
 
-    pub fn parse_flats_by_criteria(&self) {}
+    pub async fn parse_flats_by_criteria(
+        &self,
+        flat_criteria: FlatCriteria,
+    ) -> Result<(), anyhow::Error> {
+        let full_url = format!("{}{}/page1.html", self.url_base, flat_criteria.href);
+        let raw_html: Result<String, anyhow::Error> = {
+            let res = self.request_client.get(&full_url).send().await?;
+            if !res.status().is_success() {
+                return Err(anyhow::anyhow!(
+                    "Failed to get successful response from {}",
+                    full_url
+                ));
+            }
+            let res = res.text().await?;
+            Ok(res)
+        };
+        if let Err(error) = raw_html {
+            Logger::info(format!("Failed to get response from {}: {}", full_url, error).as_str());
+            return Err(anyhow::anyhow!(
+                "Failed to get response from {}: {}",
+                full_url,
+                error
+            ));
+        }
+        let raw_html = raw_html?;
+        let document = Html::parse_document(&raw_html);
+
+        let Ok(table_selector) = Selector::parse("form#filter_frm>table>tbody") else {
+            Logger::info("Failed to parse selector");
+            return Err(anyhow::anyhow!("Failed to parse selector"));
+        };
+
+        let Ok(pages_selector) = Selector::parse("form#filter_frm div.td2") else {
+            Logger::info("Failed to parse selector");
+            return Err(anyhow::anyhow!("Failed to parse selector"));
+        };
+
+        let Ok(page_index_selector) = Selector::parse("a") else {
+            Logger::info("Failed to parse selector");
+            return Err(anyhow::anyhow!("Failed to parse selector"));
+        };
+
+        // only one page of flats
+        if document.select(&pages_selector).next().is_none() {}
+
+        let page_selector = document.select(&pages_selector).next();
+        if page_selector.is_none() {
+            return Err(anyhow::anyhow!("Failed to get page selector"));
+        }
+        let page_selector = page_selector.unwrap();
+
+        let Some(tbody_element) = document.select(&table_selector).nth(1) else {
+            Logger::info("Failed to get tbody element");
+            return Err(anyhow::anyhow!("Failed to get tbody element"));
+        };
+
+        let Ok(tr_element) = Selector::parse("tr") else {
+            Logger::info("Failed to parse selector");
+            return Err(anyhow::anyhow!("Failed to parse selector"));
+        
+        };
+        let tr_elements = tbody_element.select(&tr_element).collect::<Vec<ElementRef>>();
+        for (index, tr_element) in tr_elements.iter().enumerate() {
+            let num_rows = tr_elements.len();
+            if index == 0 || index == num_rows - 1 {
+                continue; // Skip the first and last rows
+            }
+            println!("element: {:?}", tr_element);
+
+        }
+
+        Ok(())
+    }
 }
