@@ -66,7 +66,7 @@ impl FlatsBotTelegram {
         let cities_parsing_res: Result<(), anyhow::Error> =
             self.tokio_runtime.runtime.block_on(async {
                 let mut parser = self.flats_parser.lock().await;
-                parser.parse_cities_and_districts().await?;
+                parser.parse_global_data().await?;
                 Ok(())
             });
         cities_parsing_res?;

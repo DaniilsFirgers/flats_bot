@@ -31,6 +31,17 @@ impl Hash for City {
     }
 }
 
+pub struct Flat {
+    pub street_name: String,
+    pub price: String,
+    pub url: String,
+    pub image_url: String,
+    pub rooms: u32,
+    pub square_meters: u32,
+    pub floor: u32,
+    pub series: String,
+}
+
 pub struct FlatsParser {
     tokio: Arc<AppRuntime>,
     pub cities: HashSet<City>,
@@ -54,7 +65,7 @@ impl FlatsParser {
         }
     }
 
-    pub async fn parse_cities_and_districts(&mut self) -> Result<(), anyhow::Error> {
+    pub async fn parse_global_data(&mut self) -> Result<(), anyhow::Error> {
         let Ok(regex) = Regex::new(r"\u{a0}") else {
             Logger::info("Failed to create regex");
             return Err(anyhow::anyhow!("Failed to create regex"));
@@ -84,7 +95,7 @@ impl FlatsParser {
         let cities: Vec<ElementRef> = html.select(&h4_selector).collect();
         let mut cities_href_map: HashMap<String, String> = HashMap::new(); // <city_name, city_href>
         for element in cities {
-            let mut city_name = element.text().collect::<String>();
+            let city_name = element.text().collect::<String>();
             let Some(city_href) = element.value().attr("href") else {
                 Logger::info(format!("Failed to get href attribute for {:?}", city_name).as_str());
                 continue;
@@ -189,4 +200,6 @@ impl FlatsParser {
         }
         Ok(())
     }
+
+    pub fn parse_flats_by_criteria(&self) {}
 }
